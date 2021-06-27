@@ -99,6 +99,7 @@ random_choice(PyObject *NPY_UNUSED(ignored), PyObject *args)
     long start, stop;
     long n;
     bool replace;
+    // 在解析参数的时候，需要把numpy.ndarray放在最后一个参数，否则会出错
     if (!PyArg_ParseTuple(args, "lllpO|O:random_choice", &start, &stop, &n, &replace, &x, &p)) {
         return NULL;
     }

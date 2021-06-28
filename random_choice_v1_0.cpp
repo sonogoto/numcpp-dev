@@ -112,19 +112,19 @@ random_choice(PyObject *NPY_UNUSED(ignored), PyObject *args)
         PyObject *probs =  PyArray_TakeFrom((PyArrayObject *)p, indices, 0, NULL, NPY_RAISE);
         PyArray_Descr *descr = PyArray_DESCR((PyArrayObject *)probs);
         Py_INCREF(descr);
-        double *ptr = new double[stop-start];
+        double *ptr = NULL;
         npy_intp dims[] = {stop-start};
+        // 把numpy.ndarray转换为C数组
+        // 要修改指针变量ptr的值，使其指向另一个地址，因此，需要传入指针的指针&ptr
+        // 在声明和初始化ptr的时候，不需要分配内存（最后也不需要手动释放内存），
+        // 在PyArray_AsCArray中会分配内存（也可能是现有内存），
+        // 并使ptr指向该内存区域
         if (PyArray_AsCArray(&probs, (void *)&ptr, dims, 1, descr) < 0) {
-            PyErr_SetString(PyExc_RuntimeError, "error converting 1D array");
-
             Py_XDECREF(indices);
             Py_XDECREF(probs);
             Py_DECREF(descr);
-            delete[] ptr;
+            PyErr_SetString(PyExc_RuntimeError, "error converting 1D array");
             return NULL;
-
-            // delete[] ptr;
-            // return PyArray_Return(NULL);
         }
         // for (int i=0; i<stop-start; i++)
         //    printf("%f\n", ptr[i]);

@@ -39,7 +39,7 @@ _choice(PyObject *arr, long start, long stop, int n, bool replace, std::uniform_
                 rand_idx = dist(engine);
                 if (indices_sampled.count(rand_idx) == 0) {
                     idx[cnt_sampled++] = start + rand_idx;
-                    indices_sampled.insert(rand_dx);
+                    indices_sampled.insert(rand_idx);
                 }
             }
             indices = PyArray_SimpleNewFromData(1, dims, NPY_INTP, static_cast<void *>(idx));

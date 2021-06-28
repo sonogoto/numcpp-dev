@@ -111,7 +111,7 @@ random_choice(PyObject *NPY_UNUSED(ignored), PyObject *args)
         PyObject *indices = PyArray_Arange(static_cast<double>(start), static_cast<double>(stop), 1.0, NPY_INTP);
         PyObject *probs =  PyArray_TakeFrom((PyArrayObject *)p, indices, 0, NULL, NPY_RAISE);
         PyArray_Descr *descr = PyArray_DESCR((PyArrayObject *)probs);
-        Py_INCREF(descr);
+        Py_INCREF(descr); /* PyArray_AsCArray steals a reference to this */
         double *ptr = NULL;
         npy_intp dims[] = {stop-start};
         // 把numpy.ndarray转换为C数组

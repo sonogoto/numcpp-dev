@@ -47,7 +47,7 @@ _choice(PyObject *arr, long start, long stop, int n, bool replace, std::uniform_
     // 如果一个PyObject的生命周期只限于C++端，不需要管理其引用计数
     // Py_XDECREF(indices);
     // PyArray_Return中会处理引用计数，不需要手动增加引用计数，
-    // 否则会出现内存泄漏
+    // 手动增加其引用计数也不会导致内存泄漏
     // Py_XINCREF(ret);
     delete[] idx;
     return PyArray_Return((PyArrayObject *)ret);
@@ -90,7 +90,7 @@ _choice(PyObject *arr, long start, long stop, int n, bool replace, std::discrete
     // 如果一个PyObject的生命周期只限于C++端，不需要管理其引用计数
     // Py_XDECREF(indices);
     // PyArray_Return中会处理引用计数，不需要手动增加引用计数，
-    // 否则会出现内存泄漏
+    // 手动增加其引用计数也不会导致内存泄漏
     // Py_XINCREF(ret);
     delete[] idx;
     return PyArray_Return((PyArrayObject *)ret);

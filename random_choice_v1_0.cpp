@@ -44,8 +44,10 @@ _choice(PyObject *arr, long start, long stop, int n, bool replace, std::uniform_
             ret = PyArray_TakeFrom((PyArrayObject *)arr, indices, 0, NULL, NPY_RAISE);
         }
     }
-    // 如果一个PyObject的生命周期只限于C++端，不需要管理其引用计数
-    // Py_XDECREF(indices);
+    // 有些情况下，可能并不需要手动减少引用计数（不会出现内存泄漏），
+    // 即使在这种情况下，手动减少引用计数也不会有问题，
+    // 因此，为避免出现内存泄漏，一个PyObject使用完之后，总是减少其引用计数
+    Py_XDECREF(indices);
     // PyArray_Return中会处理引用计数，不需要手动增加引用计数，
     // 手动增加其引用计数也不会导致内存泄漏
     // Py_XINCREF(ret);
@@ -87,8 +89,10 @@ _choice(PyObject *arr, long start, long stop, int n, bool replace, std::discrete
             ret = PyArray_TakeFrom((PyArrayObject *)arr, indices, 0, NULL, NPY_RAISE);
         }
     }
-    // 如果一个PyObject的生命周期只限于C++端，不需要管理其引用计数
-    // Py_XDECREF(indices);
+    // 有些情况下，可能并不需要手动减少引用计数（不会出现内存泄漏），
+    // 即使在这种情况下，手动减少引用计数也不会有问题，
+    // 因此，为避免出现内存泄漏，一个PyObject使用完之后，总是减少其引用计数
+    Py_XDECREF(indices);
     // PyArray_Return中会处理引用计数，不需要手动增加引用计数，
     // 手动增加其引用计数也不会导致内存泄漏
     // Py_XINCREF(ret);
@@ -126,9 +130,8 @@ random_choice(PyObject *NPY_UNUSED(ignored), PyObject *args)
         // 在PyArray_AsCArray中会分配内存（也可能是现有内存），
         // 并使ptr指向该内存区域
         if (PyArray_AsCArray(&probs, (void *)&ptr, dims, 1, descr) < 0) {
-            // 如果一个PyObject的生命周期只限于C++端，不需要管理其引用计数
-            // Py_XDECREF(indices);
-            // Py_XDECREF(probs);
+            Py_XDECREF(indices);
+            Py_XDECREF(probs);
             Py_DECREF(descr);
             PyErr_SetString(PyExc_RuntimeError, "error converting 1D array");
             return NULL;
@@ -136,11 +139,10 @@ random_choice(PyObject *NPY_UNUSED(ignored), PyObject *args)
         std::discrete_distribution<long> dist(ptr, ptr+stop-start);
         PyObject *ret = _choice(x, start, stop, static_cast<int>(n), replace, dist);
         PyArray_Free(probs, (void *)ptr);
-        // PyArray_Free会清理内存，不再需要手动释放内存，或者清除计数
+        // PyArray_Free会清理内存，不再需要手动释放内存
         // delete[] ptr;
-        // 如果一个PyObject的生命周期只限于C++端，不需要管理其引用计数
-        // Py_DECREF(probs);
-        // Py_DECREF(indices);
+        Py_DECREF(probs);
+        Py_DECREF(indices);
         // PyArray_Free中会处理descr的引用计数
         // Py_DECREF(descr);
         return ret;

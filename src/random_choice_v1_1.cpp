@@ -11,7 +11,8 @@
 static auto engine = std::default_random_engine(std::random_device()());
 
 static PyObject *
-_choice(PyObject *arr, long start, long stop, int n, bool replace, std::uniform_int_distribution<long> &dist) {
+_choice(PyObject *arr, long start, long stop, int n, bool replace) {
+    std::uniform_int_distribution<long> dist(start, stop-1);
     npy_intp dims[] = {n};
     PyObject *ret = NULL, *indices = NULL;
     long *idx = new long[n];
@@ -48,58 +49,64 @@ _choice(PyObject *arr, long start, long stop, int n, bool replace, std::uniform_
 }
 
 static PyObject *
-_choice(PyObject *arr, long start, long stop, int n, bool replace, 
-    std::uniform_real_distribution<double> &dist, 
-    PyObject *probs_cumsum, PyObject *indices0) {
-    npy_intp dims[] = {n};
-    PyObject *ret = NULL, *indices1 = NULL, *x = NULL, *iter = NULL;
+_choice(PyObject *arr, PyObject *p, long start, long stop, int n, bool replace) {
+    PyObject *indices = PyArray_Arange(static_cast<double>(start), static_cast<double>(stop), 1.0, NPY_INTP);
+    PyObject *ret = NULL;
+    if (!replace && (stop - start <= n)) {
+        ret = PyArray_TakeFrom((PyArrayObject *)arr, indices, 0, NULL, NPY_RAISE);
+        return ret;
+    }
+    PyObject *probs =  PyArray_TakeFrom((PyArrayObject *)p, indices, 0, NULL, NPY_RAISE);
+    PyObject *probs_cumsum = PyArray_CumSum((PyArrayObject *)probs, 0, NPY_DOUBLE, NULL);
+    double *f = (double *)PyArray_GETPTR1((PyArrayObject *)probs_cumsum, stop-start-1);
+    std::uniform_real_distribution<double> dist(0.0, *f);
     double *rand_double = new double[n];
-    long *idx = new long[n];
+    npy_intp dims[] = {n};
+    PyObject *indices1 = NULL, *indices2 = NULL, *x = NULL;
     if (replace) {
         for (int i=0; i<n; ++i) {
             rand_double[i] = dist(engine);
         }
         x = PyArray_SimpleNewFromData(1, dims, NPY_DOUBLE, static_cast<void *>(rand_double));
         indices1 = PyArray_SearchSorted((PyArrayObject *)probs_cumsum, x, NPY_SEARCHRIGHT, NULL);
-        PyObject *indices2 = PyArray_TakeFrom((PyArrayObject *)indices0, indices1, 0, NULL, NPY_RAISE);
+        indices2 = PyArray_TakeFrom((PyArrayObject *)indices, indices1, 0, NULL, NPY_RAISE);
         ret = PyArray_TakeFrom((PyArrayObject *)arr, indices2, 0, NULL, NPY_RAISE);
-        Py_XDECREF(indices2);
     }
     else {
-        if (stop - start <= n) {
-            ret = PyArray_TakeFrom((PyArrayObject *)arr, indices0, 0, NULL, NPY_RAISE);
-        }
-        else {
-            int cnt_sampled = 0;
-            std::set<long> indices_sampled;
-            long *rand_idx;
-            while (cnt_sampled < n) {
-                for (int i=0; i<n-cnt_sampled; ++i) {
-                    rand_double[i] = dist(engine);
-                }
-                dims[0] = n - cnt_sampled;
-                x = PyArray_SimpleNewFromData(1, dims, NPY_DOUBLE, static_cast<void *>(rand_double));
-                indices1 = PyArray_SearchSorted((PyArrayObject *)probs_cumsum, x, NPY_SEARCHRIGHT, NULL);
-                iter = PyArray_IterNew(indices1);
-                while (PyArray_ITER_NOTDONE(iter)) {
-                    rand_idx = (long *)PyArray_ITER_DATA(iter);
-                    if (indices_sampled.count(*rand_idx) == 0) {
-                        indices_sampled.insert(*rand_idx);
-                        idx[cnt_sampled++] = start + *rand_idx;
-                    }
-                    PyArray_ITER_NEXT(iter);
-                }
+        int cnt_sampled = 0;
+        std::set<long> indices_sampled;
+        long *rand_idx, *idx = new long[n];;
+        PyObject *iter = NULL;
+        while (cnt_sampled < n) {
+            for (int i=0; i<n-cnt_sampled; ++i) {
+                rand_double[i] = dist(engine);
             }
-            dims[0] = n;
-            indices1 = PyArray_SimpleNewFromData(1, dims, NPY_INTP, static_cast<void *>(idx));
-            ret = PyArray_TakeFrom((PyArrayObject *)arr, indices1, 0, NULL, NPY_RAISE);
+            dims[0] = n - cnt_sampled;
+            x = PyArray_SimpleNewFromData(1, dims, NPY_DOUBLE, static_cast<void *>(rand_double));
+            indices1 = PyArray_SearchSorted((PyArrayObject *)probs_cumsum, x, NPY_SEARCHRIGHT, NULL);
+            iter = PyArray_IterNew(indices1);
+            while (PyArray_ITER_NOTDONE(iter)) {
+                rand_idx = (long *)PyArray_ITER_DATA(iter);
+                if (indices_sampled.count(*rand_idx) == 0) {
+                    indices_sampled.insert(*rand_idx);
+                    idx[cnt_sampled++] = start + *rand_idx;
+                }
+                PyArray_ITER_NEXT(iter);
+            }
         }
+        dims[0] = n;
+        indices2 = PyArray_SimpleNewFromData(1, dims, NPY_INTP, static_cast<void *>(idx));
+        ret = PyArray_TakeFrom((PyArrayObject *)arr, indices2, 0, NULL, NPY_RAISE);
+        Py_DECREF(iter);
+        delete[] idx;
     }
-    Py_XDECREF(indices1);
-    Py_XDECREF(x);
-    Py_XDECREF(iter);
+    Py_DECREF(probs);
+    Py_DECREF(probs_cumsum);
+    Py_DECREF(indices);
+    Py_DECREF(indices1);
+    Py_DECREF(indices2);
+    Py_DECREF(x);
     delete[] rand_double;
-    delete[] idx;
     return ret;
 }
 
@@ -125,22 +132,14 @@ random_choice(PyObject *NPY_UNUSED(ignored), PyObject *args)
         return PyArray_Return((PyArrayObject *)ret);
     }
     if (p == NULL) {
-        std::uniform_int_distribution<long> dist(start, stop-1);
-        ret = _choice(x, start, stop, static_cast<int>(n), replace, dist);
+        ret = _choice(x, start, stop, static_cast<int>(n), replace);
     }
     else {
-        PyObject *indices = PyArray_Arange(static_cast<double>(start), static_cast<double>(stop), 1.0, NPY_INTP);
-        PyObject *probs =  PyArray_TakeFrom((PyArrayObject *)p, indices, 0, NULL, NPY_RAISE);
-        PyObject *probs_cumsum = PyArray_CumSum((PyArrayObject *)probs, 0, NPY_DOUBLE, NULL);
-        double *f = (double *)PyArray_GETPTR1((PyArrayObject *)probs_cumsum, stop-start-1);
-        std::uniform_real_distribution<double> dist(0.0, *f);
-        ret = _choice(x, start, stop, static_cast<int>(n), replace, dist, probs_cumsum, indices);
-        Py_DECREF(probs);
-        Py_DECREF(indices);
-        Py_DECREF(probs_cumsum);
+        ret = _choice(x, p, start, stop, static_cast<int>(n), replace);
     }
     return PyArray_Return((PyArrayObject *)ret);
 }
+
 
 static struct PyMethodDef method_def[] = {
     {"random_choice",

@@ -115,6 +115,15 @@ random_choice(PyObject *NPY_UNUSED(ignored), PyObject *args)
         PyErr_SetString(PyExc_RuntimeError, "error parsing args");
         return NULL;
     }
+    if (stop < start) {
+        PyErr_SetString(PyExc_RuntimeError, "illegal args with `stop` less than `start`");
+        return NULL;
+    }
+    if (stop == start) {
+        npy_intp dims[] = {0};
+        ret = PyArray_ZEROS(1, dims, PyArray_TYPE((PyArrayObject *)x), 0);
+        return PyArray_Return((PyArrayObject *)ret);
+    }
     if (p == NULL) {
         std::uniform_int_distribution<long> dist(start, stop-1);
         ret = _choice(x, start, stop, static_cast<int>(n), replace, dist);

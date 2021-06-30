@@ -5,6 +5,8 @@
 #include <numpy/arrayobject.h>
 #include <set>
 #include <random>
+#include "omp.h"
+
 
 // typedef unsigned int uint;
 
@@ -12,9 +14,15 @@ static auto engine = std::default_random_engine(std::random_device()());
 
 static PyObject *
 _choice(PyObject *arr, long start, long stop, int n, bool replace) {
+    PyObject *indices = NULL, *ret = NULL;
+    if (!replace && (stop - start <= n)) {
+        indices = PyArray_Arange(static_cast<double>(start), static_cast<double>(stop), 1.0, NPY_INTP);
+        ret = PyArray_TakeFrom((PyArrayObject *)arr, indices, 0, NULL, NPY_RAISE);
+        Py_DECREF(indices);
+        return ret;
+    }
     std::uniform_int_distribution<long> dist(start, stop-1);
     npy_intp dims[] = {n};
-    PyObject *ret = NULL, *indices = NULL;
     long *idx = new long[n];
     if (replace) {
         for (int i=0; i<n; ++i) {
@@ -24,26 +32,20 @@ _choice(PyObject *arr, long start, long stop, int n, bool replace) {
         ret = PyArray_TakeFrom((PyArrayObject *)arr, indices, 0, NULL, NPY_RAISE);
     }
     else {
-        if (stop - start <= n) {
-            indices = PyArray_Arange(static_cast<double>(start), static_cast<double>(stop), 1.0, NPY_LONG);
-            ret = PyArray_TakeFrom((PyArrayObject *)arr, indices, 0, NULL, NPY_RAISE);
-        }
-        else {
-            int cnt_sampled = 0;
-            std::set<long> indices_sampled;
-            long rand_idx = 0;
-            while (cnt_sampled < n) {
-                rand_idx = dist(engine);
-                if (indices_sampled.count(rand_idx) == 0) {
-                    idx[cnt_sampled++] = start + rand_idx;
-                    indices_sampled.insert(rand_idx);
-                }
+        int cnt_sampled = 0;
+        std::set<long> indices_sampled;
+        long rand_idx = 0;
+        while (cnt_sampled < n) {
+            rand_idx = dist(engine);
+            if (indices_sampled.count(rand_idx) == 0) {
+                idx[cnt_sampled++] = rand_idx;
+                indices_sampled.insert(rand_idx);
             }
-            indices = PyArray_SimpleNewFromData(1, dims, NPY_INTP, static_cast<void *>(idx));
-            ret = PyArray_TakeFrom((PyArrayObject *)arr, indices, 0, NULL, NPY_RAISE);
         }
+        indices = PyArray_SimpleNewFromData(1, dims, NPY_INTP, static_cast<void *>(idx));
+        ret = PyArray_TakeFrom((PyArrayObject *)arr, indices, 0, NULL, NPY_RAISE);
     }
-    Py_XDECREF(indices);
+    Py_DECREF(indices);
     delete[] idx;
     return ret;
 }
@@ -54,6 +56,7 @@ _choice(PyObject *arr, PyObject *p, long start, long stop, int n, bool replace) 
     PyObject *ret = NULL;
     if (!replace && (stop - start <= n)) {
         ret = PyArray_TakeFrom((PyArrayObject *)arr, indices, 0, NULL, NPY_RAISE);
+        Py_DECREF(indices);
         return ret;
     }
     PyObject *probs =  PyArray_TakeFrom((PyArrayObject *)p, indices, 0, NULL, NPY_RAISE);
@@ -71,6 +74,9 @@ _choice(PyObject *arr, PyObject *p, long start, long stop, int n, bool replace) 
         indices1 = PyArray_SearchSorted((PyArrayObject *)probs_cumsum, x, NPY_SEARCHRIGHT, NULL);
         indices2 = PyArray_TakeFrom((PyArrayObject *)indices, indices1, 0, NULL, NPY_RAISE);
         ret = PyArray_TakeFrom((PyArrayObject *)arr, indices2, 0, NULL, NPY_RAISE);
+        Py_DECREF(indices1);
+        Py_DECREF(indices2);
+        Py_DECREF(x);
     }
     else {
         int cnt_sampled = 0;
@@ -93,22 +99,68 @@ _choice(PyObject *arr, PyObject *p, long start, long stop, int n, bool replace) 
                 }
                 PyArray_ITER_NEXT(iter);
             }
+            Py_DECREF(indices1);
+            Py_DECREF(x);
+            Py_DECREF(iter);
         }
         dims[0] = n;
         indices2 = PyArray_SimpleNewFromData(1, dims, NPY_INTP, static_cast<void *>(idx));
         ret = PyArray_TakeFrom((PyArrayObject *)arr, indices2, 0, NULL, NPY_RAISE);
-        Py_DECREF(iter);
+        Py_DECREF(indices2);
         delete[] idx;
     }
     Py_DECREF(probs);
     Py_DECREF(probs_cumsum);
     Py_DECREF(indices);
-    Py_DECREF(indices1);
-    Py_DECREF(indices2);
-    Py_DECREF(x);
+    
     delete[] rand_double;
     return ret;
 }
+
+
+static PyObject *
+_sample_neighbors(PyObject *ids0, PyObject *ids1, 
+                  PyObject *nbr_ids, PyObject *nbr_ptrs, 
+                  int n, bool replace) {
+    long cnt = PyArray_SIZE((PyArrayObject *)ids0);
+    PyObject *ptr_start = PyArray_TakeFrom((PyArrayObject *)nbr_ptrs, ids0, 0, NULL, NPY_RAISE);
+    PyObject *ptr_end = PyArray_TakeFrom((PyArrayObject *)nbr_ptrs, ids1, 0, NULL, NPY_RAISE);
+    PyObject *rets = PyTuple_New((int)cnt);
+    // #pragma omp parallel for
+    for (long i=0; i<cnt; ++i) {
+        long *start = (long *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
+        long *end = (long *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
+        PyObject *ret = _choice(nbr_ids, *start, *end, n, replace);
+        // Py_INCREF(ret);
+        PyTuple_SET_ITEM(rets, (int)i, ret);
+    }
+    Py_DECREF(ptr_start);
+    Py_DECREF(ptr_end);
+    return rets;
+}
+
+
+// static PyObject *
+// _sample_neighbors(PyObject *ids0, PyObject *ids1, 
+//                   PyObject *nbr_ids, PyObject *nbr_ptrs, 
+//                   PyObject *edge_ids, PyObject *edge_weights, 
+//                   int n, bool replace) {
+//     long cnt = PyArray_SIZE((PyArrayObject *)ids);
+//     PyObject *ptr_start = PyArray_TakeFrom((PyArrayObject *)nbr_ptrs, ids0, 0, NULL, NPY_RAISE);
+//     PyObject *ptr_end = PyArray_TakeFrom((PyArrayObject *)nbr_ptrs, ids1, 0, NULL, NPY_RAISE);
+//     if (edge_weights == NULL) {
+//         #pragma omp parallel for
+//         for (long i=0; i<cnt; ++i) {
+//             long *start = (double *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
+//             long *end = (double *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
+//             PyObject *ret = _choice(nbr_ids, *start, *end, n, replace);
+//         }
+//     }
+//     else {
+
+//     }
+// }
+
 
 static PyObject *
 random_choice(PyObject *NPY_UNUSED(ignored), PyObject *args)
@@ -141,9 +193,29 @@ random_choice(PyObject *NPY_UNUSED(ignored), PyObject *args)
 }
 
 
+static PyObject *
+sample_neighbors(PyObject *NPY_UNUSED(ignored), PyObject *args)
+{
+    PyObject *ids0 = NULL, *ids1 = NULL, *nbr_ids = NULL, *nbr_ptrs = NULL;
+    long n;
+    bool replace;
+    // 在解析参数的时候，需要把numpy.ndarray放在最后一个参数，否则会出错
+    if (!PyArg_ParseTuple(args, "lpOOOO:sample_neighbors", &n, &replace, &ids0, &ids1, &nbr_ids, &nbr_ptrs)) {
+        PyErr_SetString(PyExc_RuntimeError, "error parsing args");
+        return NULL;
+    }
+    PyObject *ret = _sample_neighbors(ids0, ids1, nbr_ids, nbr_ptrs, static_cast<int>(n), replace);
+    // return PyArray_Return((PyArrayObject *)ret);
+    return ret;
+}
+
+
 static struct PyMethodDef method_def[] = {
     {"random_choice",
     (PyCFunction)random_choice,
+    METH_VARARGS, NULL},
+    {"sample_neighbors",
+    (PyCFunction)sample_neighbors,
     METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL}                /* sentinel */
 };

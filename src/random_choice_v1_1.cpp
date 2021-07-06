@@ -50,6 +50,36 @@ _choice(PyObject *arr, long start, long stop, int n, bool replace) {
     return ret;
 }
 
+
+static int
+_choice(long start, long stop, int n, bool replace, long *out) {
+    if (!replace && (stop - start <= n)) {
+        for (int i=0; i<stop-start; ++i)
+            out[i] = start + i;
+        return (int)(stop-start);
+    }
+    std::uniform_int_distribution<long> dist(start, stop-1);
+    if (replace) {
+        for (int i=0; i<n; ++i) {
+            out[i] = dist(engine);
+        }
+    }
+    else {
+        int cnt_sampled = 0;
+        std::set<long> indices_sampled;
+        long rand_idx = 0;
+        while (cnt_sampled < n) {
+            rand_idx = dist(engine);
+            if (indices_sampled.count(rand_idx) == 0) {
+                out[cnt_sampled++] = rand_idx;
+                indices_sampled.insert(rand_idx);
+            }
+        }
+    }
+    return n;
+}
+
+
 static PyObject *
 _choice(PyObject *arr, PyObject *p, long start, long stop, int n, bool replace) {
     PyObject *indices = PyArray_Arange(static_cast<double>(start), static_cast<double>(stop), 1.0, NPY_INTP);
@@ -122,20 +152,28 @@ static PyObject *
 _sample_neighbors(PyObject *ids0, PyObject *ids1, 
                   PyObject *nbr_ids, PyObject *nbr_ptrs, 
                   int n, bool replace) {
-    long cnt = PyArray_SIZE((PyArrayObject *)ids0);
+    int cnt = (int)PyArray_SIZE((PyArrayObject *)ids0);
     PyObject *ptr_start = PyArray_TakeFrom((PyArrayObject *)nbr_ptrs, ids0, 0, NULL, NPY_RAISE);
     PyObject *ptr_end = PyArray_TakeFrom((PyArrayObject *)nbr_ptrs, ids1, 0, NULL, NPY_RAISE);
-    PyObject *rets = PyTuple_New((int)cnt);
-    // #pragma omp parallel for
-    for (long i=0; i<cnt; ++i) {
+    long *indices = new long[cnt*n];
+    int *offset = new int[cnt];
+    #pragma omp parallel for shared(indices, offset)
+    for (int i=0; i<cnt; ++i) {
         long *start = (long *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
         long *end = (long *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
-        PyObject *ret = _choice(nbr_ids, *start, *end, n, replace);
-        // Py_INCREF(ret);
-        PyTuple_SET_ITEM(rets, (int)i, ret);
+        offset[i] = _choice(*start, *end, n, replace, indices+i*n);
     }
     Py_DECREF(ptr_start);
     Py_DECREF(ptr_end);
+
+    PyObject *rets = PyTuple_New(cnt);
+    for (int i=0; i<cnt; ++i) {
+        npy_intp dims[] = {(long)offset[i]}; 
+        PyObject *idx = PyArray_SimpleNewFromData(1, dims, NPY_INTP, static_cast<void *>(indices+i*n));
+        PyObject *ret = PyArray_TakeFrom((PyArrayObject *)nbr_ids, idx, 0, NULL, NPY_RAISE);
+        PyTuple_SET_ITEM(rets, i, ret);
+        Py_DECREF(idx);
+    }
     return rets;
 }
 

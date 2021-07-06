@@ -5,7 +5,6 @@
 #include <numpy/arrayobject.h>
 #include <set>
 #include <random>
-#include "omp.h"
 
 
 // typedef unsigned int uint;
@@ -119,50 +118,6 @@ _choice(PyObject *arr, PyObject *p, long start, long stop, int n, bool replace) 
 
 
 static PyObject *
-_sample_neighbors(PyObject *ids0, PyObject *ids1, 
-                  PyObject *nbr_ids, PyObject *nbr_ptrs, 
-                  int n, bool replace) {
-    long cnt = PyArray_SIZE((PyArrayObject *)ids0);
-    PyObject *ptr_start = PyArray_TakeFrom((PyArrayObject *)nbr_ptrs, ids0, 0, NULL, NPY_RAISE);
-    PyObject *ptr_end = PyArray_TakeFrom((PyArrayObject *)nbr_ptrs, ids1, 0, NULL, NPY_RAISE);
-    PyObject *rets = PyTuple_New((int)cnt);
-    // #pragma omp parallel for
-    for (long i=0; i<cnt; ++i) {
-        long *start = (long *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
-        long *end = (long *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
-        PyObject *ret = _choice(nbr_ids, *start, *end, n, replace);
-        // Py_INCREF(ret);
-        PyTuple_SET_ITEM(rets, (int)i, ret);
-    }
-    Py_DECREF(ptr_start);
-    Py_DECREF(ptr_end);
-    return rets;
-}
-
-
-// static PyObject *
-// _sample_neighbors(PyObject *ids0, PyObject *ids1, 
-//                   PyObject *nbr_ids, PyObject *nbr_ptrs, 
-//                   PyObject *edge_ids, PyObject *edge_weights, 
-//                   int n, bool replace) {
-//     long cnt = PyArray_SIZE((PyArrayObject *)ids);
-//     PyObject *ptr_start = PyArray_TakeFrom((PyArrayObject *)nbr_ptrs, ids0, 0, NULL, NPY_RAISE);
-//     PyObject *ptr_end = PyArray_TakeFrom((PyArrayObject *)nbr_ptrs, ids1, 0, NULL, NPY_RAISE);
-//     if (edge_weights == NULL) {
-//         #pragma omp parallel for
-//         for (long i=0; i<cnt; ++i) {
-//             long *start = (double *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
-//             long *end = (double *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
-//             PyObject *ret = _choice(nbr_ids, *start, *end, n, replace);
-//         }
-//     }
-//     else {
-
-//     }
-// }
-
-
-static PyObject *
 random_choice(PyObject *NPY_UNUSED(ignored), PyObject *args)
 {
     PyObject *x = NULL, *p = NULL, *ret = NULL;
@@ -193,29 +148,10 @@ random_choice(PyObject *NPY_UNUSED(ignored), PyObject *args)
 }
 
 
-static PyObject *
-sample_neighbors(PyObject *NPY_UNUSED(ignored), PyObject *args)
-{
-    PyObject *ids0 = NULL, *ids1 = NULL, *nbr_ids = NULL, *nbr_ptrs = NULL;
-    long n;
-    bool replace;
-    // 在解析参数的时候，需要把numpy.ndarray放在最后一个参数，否则会出错
-    if (!PyArg_ParseTuple(args, "lpOOOO:sample_neighbors", &n, &replace, &ids0, &ids1, &nbr_ids, &nbr_ptrs)) {
-        PyErr_SetString(PyExc_RuntimeError, "error parsing args");
-        return NULL;
-    }
-    PyObject *ret = _sample_neighbors(ids0, ids1, nbr_ids, nbr_ptrs, static_cast<int>(n), replace);
-    // return PyArray_Return((PyArrayObject *)ret);
-    return ret;
-}
-
 
 static struct PyMethodDef method_def[] = {
     {"random_choice",
     (PyCFunction)random_choice,
-    METH_VARARGS, NULL},
-    {"sample_neighbors",
-    (PyCFunction)sample_neighbors,
     METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL}                /* sentinel */
 };

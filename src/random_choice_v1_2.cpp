@@ -102,12 +102,21 @@ _sample_neighbors_randomly(PyObject *ids0, PyObject *ids1,
     }
     #pragma omp parallel for shared(indices, offset)
     for (int i=0; i<cnt; ++i) {
-        long *start = (long *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
-        long *end = (long *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
+        long start, end;
+        if (PyArray_TYPE((PyArrayObject *)ptr_start) == NPY_INT) {
+            int *p1 = (int *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
+            int *p2 = (int *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
+            start = (long)(*p1);
+            end = (long)(*p2);
+        }
+        else {
+            start = *(long *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
+            end = *(long *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
+        }
         if (edge_probs == NULL)
-            offset[i] = _choice(*start, *end, n, replace, indices+i*n);
+            offset[i] = _choice(start, end, n, replace, indices+i*n);
         else
-            offset[i] = _choice((PyArrayObject *)edge_probs, *start, *end, n, replace, indices+i*n);
+            offset[i] = _choice((PyArrayObject *)edge_probs, start, end, n, replace, indices+i*n);
     }
     Py_DECREF(ptr_start);
     Py_DECREF(ptr_end);
@@ -120,7 +129,7 @@ _sample_neighbors_randomly(PyObject *ids0, PyObject *ids1,
     npy_intp dims[1];
     for (int i=0; i<cnt; ++i) {
         dims[0] = (npy_intp)offset[i];
-        PyObject *idx = PyArray_SimpleNewFromData(1, dims, NPY_INTP, static_cast<void *>(indices+i*n));
+        PyObject *idx = PyArray_SimpleNewFromData(1, dims, NPY_INTP, (void *)(indices+i*n));
         PyObject *ret = PyArray_TakeFrom((PyArrayObject *)nbr_ids, idx, 0, NULL, NPY_RAISE);
         PyTuple_SET_ITEM(rets, i, ret);
         if (edge_ids != NULL) {
@@ -139,7 +148,7 @@ _sample_neighbors_randomly(PyObject *ids0, PyObject *ids1,
         PyTuple_SET_ITEM(rets, cnt, offset_arr);
     else
         PyTuple_SET_ITEM(rets, cnt*2, offset_arr);
-    
+
     delete[] indices;
     // the memory of offset will be freed
     // when offset_arr is deallocated
@@ -154,7 +163,7 @@ sample_neighbors_randomly(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObjec
     PyObject *ids0 = NULL, *ids1 = NULL, *nbr_ids = NULL, *nbr_ptrs = NULL, *edge_ids = NULL, *edge_probs = NULL;
     long n, num_threads = 0;
     bool replace;
-    static char *kwlist[] = {"n", "replace", "ids0", "ids1", "nbr_ids", "nbr_ptrs", 
+    static char *kwlist[] = {"n", "replace", "ids0", "ids1", "nbr_ids", "nbr_ptrs",
                             "num_threads", "edge_ids", "edge_probs", NULL};
     // 在解析参数的时候，需要把numpy.ndarray放在最后一个参数，否则会出错
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "lpOOOO|lOO:sample_neighbors", kwlist,
@@ -211,9 +220,18 @@ _sample_topk_neighbors(PyObject *ids0, PyObject *ids1,
     }
     #pragma omp parallel for shared(indices, offset)
     for (int i=0; i<cnt; ++i) {
-        long *start = (long *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
-        long *end = (long *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
-        offset[i] = _topk((PyArrayObject *)edge_probs, *start, *end, k, indices+i*k);
+        long start, end;
+        if (PyArray_TYPE((PyArrayObject *)ptr_start) == NPY_INT) {
+            int *p1 = (int *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
+            int *p2 = (int *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
+            start = (long)(*p1);
+            end = (long)(*p2);
+        }
+        else {
+            start = *(long *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
+            end = *(long *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
+        }
+        offset[i] = _topk((PyArrayObject *)edge_probs, start, end, k, indices+i*k);
     }
     Py_DECREF(ptr_start);
     Py_DECREF(ptr_end);
@@ -226,7 +244,7 @@ _sample_topk_neighbors(PyObject *ids0, PyObject *ids1,
     npy_intp dims[1];
     for (int i=0; i<cnt; ++i) {
         dims[0] = (npy_intp)offset[i];
-        PyObject *idx = PyArray_SimpleNewFromData(1, dims, NPY_INTP, static_cast<void *>(indices+i*k));
+        PyObject *idx = PyArray_SimpleNewFromData(1, dims, NPY_INTP, (void *)(indices+i*k));
         PyObject *ret = PyArray_TakeFrom((PyArrayObject *)nbr_ids, idx, 0, NULL, NPY_RAISE);
         PyTuple_SET_ITEM(rets, i, ret);
         if (edge_ids != NULL) {
@@ -245,7 +263,7 @@ _sample_topk_neighbors(PyObject *ids0, PyObject *ids1,
         PyTuple_SET_ITEM(rets, cnt, offset_arr);
     else
         PyTuple_SET_ITEM(rets, cnt*2, offset_arr);
-    
+
     delete[] indices;
     // the memory of offset will be freed
     // when offset_arr is deallocated
@@ -272,7 +290,6 @@ sample_topk_neighbors(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *k
     return ret;
 }
 
-
 static struct PyMethodDef method_def[] = {
     {"sample_neighbors_randomly",
     (PyCFunction)sample_neighbors_randomly,
@@ -285,7 +302,7 @@ static struct PyMethodDef method_def[] = {
 
 static struct PyModuleDef module_def = {
         PyModuleDef_HEAD_INIT,
-        "np",
+        "sampler",
         NULL,
         -1,
         method_def,
@@ -295,7 +312,7 @@ static struct PyModuleDef module_def = {
         NULL
 };
 
-PyMODINIT_FUNC PyInit_np(void) {
+PyMODINIT_FUNC PyInit_sampler(void) {
     PyObject *m;
     /* Create the module and add the functions */
     m = PyModule_Create(&module_def);
@@ -303,7 +320,7 @@ PyMODINIT_FUNC PyInit_np(void) {
     if (!m) {
         if (!PyErr_Occurred()) {
             PyErr_SetString(PyExc_RuntimeError,
-                            "cannot load np module.");
+                            "cannot load sampler module.");
         }
         return NULL;
     }

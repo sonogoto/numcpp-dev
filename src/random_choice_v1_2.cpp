@@ -15,6 +15,8 @@ static auto engine = std::default_random_engine(std::random_device()());
 
 static int
 _choice(long start, long stop, int n, bool replace, long *out) {
+    if (stop <= start)
+        return 0;
     if (!replace && (stop - start <= n)) {
         for (int i=0; i<stop-start; ++i)
             out[i] = start + i;
@@ -22,12 +24,9 @@ _choice(long start, long stop, int n, bool replace, long *out) {
     }
     std::uniform_int_distribution<long> dist(start, stop-1);
     if (replace) {
-        if (stop <= start)
-            return 0;
-        else
-            for (int i=0; i<n; ++i) {
-                out[i] = dist(engine);
-            }
+        for (int i=0; i<n; ++i) {
+            out[i] = dist(engine);
+        }
     }
     else {
         int cnt_sampled = 0;
@@ -56,6 +55,8 @@ static void cumulative_sum(PyArrayObject *arr, long start, long stop, double *ou
 
 static int
 _choice(PyArrayObject *p, long start, long stop, int n, bool replace, long *out) {
+    if (stop <= start)
+        return 0;
     if (!replace && (stop - start <= n)) {
         for (int i=0; i<stop-start; ++i)
             out[i] = start + i;

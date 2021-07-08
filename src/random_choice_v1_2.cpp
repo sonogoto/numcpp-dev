@@ -22,9 +22,12 @@ _choice(long start, long stop, int n, bool replace, long *out) {
     }
     std::uniform_int_distribution<long> dist(start, stop-1);
     if (replace) {
-        for (int i=0; i<n; ++i) {
-            out[i] = dist(engine);
-        }
+        if (stop <= start)
+            return 0;
+        else
+            for (int i=0; i<n; ++i) {
+                out[i] = dist(engine);
+            }
     }
     else {
         int cnt_sampled = 0;

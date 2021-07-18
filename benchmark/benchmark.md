@@ -104,3 +104,21 @@ serial vs. parallel
 |8|86.5 ms ± 261 µs|9.07 ms ± 364 µs|738 µs ± 6.27 µs|374 µs ± 456 ns|96.5 µs ± 431 ns|48.4 µs ± 598 ns|
 |16|86 ms ± 606 µs|10.1 ms ± 250 µs|970 µs ± 12.2 µs|555 µs ± 10.6 µs|274 µs ± 7.38 µs|180 µs ± 897 ns|
 
+
+
+### numcpp vs. dgl
+
+`paper` vertex & `cites` edge from [MAG240M](https://ogb.stanford.edu/kddcup2021/mag240m/)
+
+
+`#paper` = 121,751,666, `#cites` = 1,297,748,926
+
+
+`#hops` = 2, `#neighbors` = 10
+
+
+|#threads|time(sec)|
+|:---:|:---:|
+|numcpp(8 threads)|569|
+|dgl(4 threads)|773|
+|dgl(32 threads)|758|

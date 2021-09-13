@@ -101,7 +101,7 @@ _sample_neighbors_randomly(PyObject *ids0, PyObject *ids1,
     long *indices = new long[cnt*n];
     int *offset = new int[cnt];
     if (num_threads > 0) {
-        omp_set_dynamic(0);
+        omp_set_dynamic((int)true);
         omp_set_num_threads(num_threads);
     }
     #pragma omp parallel for shared(indices, offset)
@@ -219,7 +219,7 @@ _sample_topk_neighbors(PyObject *ids0, PyObject *ids1,
     long *indices = new long[cnt*k];
     int *offset = new int[cnt];
     if (num_threads > 0) {
-        omp_set_dynamic(0);
+        omp_set_dynamic((int)true);
         omp_set_num_threads(num_threads);
     }
     #pragma omp parallel for shared(indices, offset)

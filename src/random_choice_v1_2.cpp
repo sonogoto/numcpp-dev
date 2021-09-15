@@ -90,6 +90,21 @@ _choice(PyArrayObject *p, long start, long stop, int n, bool replace, long *out)
     return n;
 }
 
+inline static void _get_start_end(PyObject *start_arr, PyObject *end_arr,
+                          npy_intp start_idx, npy_intp end_idx,
+                          long *start, long *end) {
+    if (PyArray_TYPE((PyArrayObject *)start_arr) == NPY_INT) {
+        int *p1 = (int *)PyArray_GETPTR1((PyArrayObject *)start_arr, start_idx);
+        int *p2 = (int *)PyArray_GETPTR1((PyArrayObject *)end_arr, end_idx);
+        *start = (long)(*p1);
+        *end = (long)(*p2);
+    }
+    else {
+        *start = *(long *)PyArray_GETPTR1((PyArrayObject *)start_arr, start_idx);
+        *end = *(long *)PyArray_GETPTR1((PyArrayObject *)end_arr, end_idx);
+    }
+}
+
 static PyObject *
 _sample_neighbors_randomly(PyObject *ids0, PyObject *ids1,
                            PyObject *nbr_ids, PyObject *nbr_ptrs,
@@ -107,16 +122,7 @@ _sample_neighbors_randomly(PyObject *ids0, PyObject *ids1,
     #pragma omp parallel for shared(indices, offset)
     for (int i=0; i<cnt; ++i) {
         long start, end;
-        if (PyArray_TYPE((PyArrayObject *)ptr_start) == NPY_INT) {
-            int *p1 = (int *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
-            int *p2 = (int *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
-            start = (long)(*p1);
-            end = (long)(*p2);
-        }
-        else {
-            start = *(long *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
-            end = *(long *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
-        }
+        _get_start_end(ptr_start, ptr_end, i, i, &start, &end);
         if (edge_probs == NULL)
             offset[i] = _choice(start, end, n, replace, indices+i*n);
         else
@@ -225,16 +231,7 @@ _sample_topk_neighbors(PyObject *ids0, PyObject *ids1,
     #pragma omp parallel for shared(indices, offset)
     for (int i=0; i<cnt; ++i) {
         long start, end;
-        if (PyArray_TYPE((PyArrayObject *)ptr_start) == NPY_INT) {
-            int *p1 = (int *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
-            int *p2 = (int *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
-            start = (long)(*p1);
-            end = (long)(*p2);
-        }
-        else {
-            start = *(long *)PyArray_GETPTR1((PyArrayObject *)ptr_start, i);
-            end = *(long *)PyArray_GETPTR1((PyArrayObject *)ptr_end, i);
-        }
+        _get_start_end(ptr_start, ptr_end, i, i, &start, &end);
         offset[i] = _topk((PyArrayObject *)edge_probs, start, end, k, indices+i*k);
     }
     Py_DECREF(ptr_start);
@@ -294,12 +291,165 @@ sample_topk_neighbors(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *k
     return ret;
 }
 
+
+static PyObject *
+_random_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs,
+             PyObject *edge_probs, int walk_length, int num_threads) {
+    int cnt = (int)PyArray_SIZE((PyArrayObject *)ids);
+    PyObject *rets = PyTuple_New(cnt);
+
+    for (int i=0; i<cnt; ++i) {
+        int j = 1, actual_len = 1, continue_flag;
+        PyObject *path = PyList_New(walk_length+1);
+        long start, end, nid, nbr_ptr[1];
+        nid = *(long *)PyArray_GETPTR1((PyArrayObject *)ids, i);
+        PyList_SetItem(path, 0, PyLong_FromLong(nid));
+        for(; j<=walk_length; ++j) {
+            _get_start_end(nbr_ptrs, nbr_ptrs, nid, nid+1, &start, &end);
+            if (edge_probs == NULL)
+                continue_flag = _choice(start, end, 1, true, nbr_ptr);
+            else
+                continue_flag = _choice((PyArrayObject *)edge_probs, start, end, 1, true, nbr_ptr);
+
+            if (continue_flag) {
+                if (PyArray_TYPE((PyArrayObject *)nbr_ids) == NPY_INT) {
+                    int *p1 = (int *)PyArray_GETPTR1((PyArrayObject *)nbr_ids, nbr_ptr[0]);
+                    nid = (long)(*p1);
+                }
+                else
+                    nid = *(long *)PyArray_GETPTR1((PyArrayObject *)nbr_ids, nbr_ptr[0]);
+                PyList_SetItem(path, j, PyLong_FromLong(nid));
+                actual_len = j+1;
+            }
+            else
+                break;
+        }
+        PyTuple_SetItem(rets, i, PyList_GetSlice(path, 0, actual_len));
+        Py_DECREF(path);
+    }
+
+    return rets;
+}
+
+
+static PyObject *
+random_walk(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwargs)
+{
+    PyObject *ids = NULL, *nbr_ids = NULL, *nbr_ptrs = NULL, *edge_probs = NULL;
+    long walk_length, num_threads = 0;
+    static char *kwlist[] = {"walk_length", "ids", "nbr_ids", "nbr_ptrs", "edge_probs",
+                            "num_threads", NULL};
+    // 在解析参数的时候，需要把numpy.ndarray放在最后一个参数，否则会出错
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "lOOO|Ol:random_walk", kwlist,
+                                    &walk_length, &ids, &nbr_ids, &nbr_ptrs, &edge_probs,
+                                    &num_threads)) {
+        PyErr_SetString(PyExc_RuntimeError, "error parsing args");
+        return NULL;
+    }
+    PyObject *ret = _random_walk(ids, nbr_ids, nbr_ptrs, edge_probs, (int)walk_length, (int)num_threads);
+    return ret;
+}
+
+
+static PyObject *
+_node2vec_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs,
+             double p, double q, int walk_length, int num_threads) {
+    int cnt = (int)PyArray_SIZE((PyArrayObject *)ids);
+    PyObject *rets = PyTuple_New(cnt);
+    double transfer_probs[3] = {1.0/p, 1.0, 1.0/q};
+    npy_intp dims[1] = {3};
+    PyObject *transfer_probs_arr = PyArray_SimpleNewFromData(1, dims, NPY_DOUBLE, (void *)(transfer_probs));
+
+    long *path = new long[walk_length+1];
+    long start, end, nid, nbr_ptr[1], next_step[1];
+    for (int i=0; i<cnt; ++i) {
+        int j = 1, actual_len = 1, continue_flag;
+        nid = *(long *)PyArray_GETPTR1((PyArrayObject *)ids, i);
+        path[0] = nid;
+        for(; j<=walk_length; ++j) {
+            if (j <= 1) {
+                _get_start_end(nbr_ptrs, nbr_ptrs, path[0], path[0]+1, &start, &end);
+                continue_flag = _choice(start, end, 1, true, nbr_ptr);
+            }
+            else {
+                _choice((PyArrayObject *)transfer_probs_arr, 0L, 3L, 1, true, next_step);
+                switch (next_step[0]) {
+                    case 0L:
+                        nid = path[j-2];
+                        continue_flag = 1;
+                        break;
+                    case 1L:
+                        _get_start_end(nbr_ptrs, nbr_ptrs, path[j-2], path[j-2]+1, &start, &end);
+                        continue_flag = _choice(start, end, 1, true, nbr_ptr);
+                        break;
+                    case 2L:
+                        _get_start_end(nbr_ptrs, nbr_ptrs, path[j-1], path[j-1]+1, &start, &end);
+                        continue_flag = _choice(start, end, 1, true, nbr_ptr);
+                        break;
+                    default:
+                        continue_flag = 0;
+                }
+            }
+
+            if (continue_flag) {
+                if (j <= 1 || next_step[0] != 0L) {
+                    if (PyArray_TYPE((PyArrayObject *)nbr_ids) == NPY_INT) {
+                        int *p1 = (int *)PyArray_GETPTR1((PyArrayObject *)nbr_ids, nbr_ptr[0]);
+                        nid = (long)(*p1);
+                    }
+                    else
+                        nid = *(long *)PyArray_GETPTR1((PyArrayObject *)nbr_ids, nbr_ptr[0]);
+                }
+                path[j] = nid;
+                actual_len = j+1;
+            }
+            else
+                break;
+        }
+        PyObject *actual_path = PyList_New(actual_len);
+        for(int k=0; k<actual_len; ++k)
+            PyList_SetItem(actual_path, k, PyLong_FromLong(path[k]));
+        PyTuple_SetItem(rets, i, actual_path);
+    }
+    delete[] path;
+    Py_DECREF(transfer_probs_arr);
+
+    return rets;
+}
+
+
+static PyObject *
+node2vec_walk(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwargs)
+{
+    PyObject *ids = NULL, *nbr_ids = NULL, *nbr_ptrs = NULL;
+    double p, q;
+    long walk_length, num_threads = 0;
+    static char *kwlist[] = {"walk_length", "ids", "nbr_ids", "nbr_ptrs", "p", "q",
+                            "num_threads", NULL};
+    // 在解析参数的时候，需要把numpy.ndarray放在最后一个参数，否则会出错
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "lOOOdd|l:node2vec_walk", kwlist,
+                                    &walk_length, &ids, &nbr_ids, &nbr_ptrs, &p, &q,
+                                    &num_threads)) {
+        PyErr_SetString(PyExc_RuntimeError, "error parsing args");
+        return NULL;
+    }
+    PyObject *ret = _node2vec_walk(ids, nbr_ids, nbr_ptrs, p, q, (int)walk_length, (int)num_threads);
+    return ret;
+}
+
+
 static struct PyMethodDef method_def[] = {
     {"sample_neighbors_randomly",
     (PyCFunction)sample_neighbors_randomly,
     METH_VARARGS | METH_KEYWORDS, NULL},
     {"sample_topk_neighbors",
     (PyCFunction)sample_topk_neighbors,
+    METH_VARARGS | METH_KEYWORDS, NULL},
+    {"random_walk",
+    (PyCFunction)random_walk,
+    METH_VARARGS | METH_KEYWORDS, NULL},
+    {"node2vec_walk",
+    (PyCFunction)node2vec_walk,
     METH_VARARGS | METH_KEYWORDS, NULL},
     {NULL, NULL, 0, NULL}                /* sentinel */
 };

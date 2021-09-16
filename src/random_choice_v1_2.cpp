@@ -10,7 +10,6 @@
 #include <vector>
 #include <functional>
 
-
 static auto engine = std::default_random_engine(std::random_device()());
 
 static int
@@ -294,7 +293,7 @@ sample_topk_neighbors(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *k
 
 static PyObject *
 _random_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs,
-             PyObject *edge_probs, int walk_length, int num_threads) {
+             PyObject *edge_probs, int walk_length) {
     int cnt = (int)PyArray_SIZE((PyArrayObject *)ids);
     PyObject *rets = PyTuple_New(cnt);
 
@@ -336,24 +335,22 @@ static PyObject *
 random_walk(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwargs)
 {
     PyObject *ids = NULL, *nbr_ids = NULL, *nbr_ptrs = NULL, *edge_probs = NULL;
-    long walk_length, num_threads = 0;
-    static char *kwlist[] = {"walk_length", "ids", "nbr_ids", "nbr_ptrs", "edge_probs",
-                            "num_threads", NULL};
+    long walk_length;
+    static char *kwlist[] = {"walk_length", "ids", "nbr_ids", "nbr_ptrs", "edge_probs", NULL};
     // 在解析参数的时候，需要把numpy.ndarray放在最后一个参数，否则会出错
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "lOOO|Ol:random_walk", kwlist,
-                                    &walk_length, &ids, &nbr_ids, &nbr_ptrs, &edge_probs,
-                                    &num_threads)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "lOOO|O:random_walk", kwlist,
+                                    &walk_length, &ids, &nbr_ids, &nbr_ptrs, &edge_probs)) {
         PyErr_SetString(PyExc_RuntimeError, "error parsing args");
         return NULL;
     }
-    PyObject *ret = _random_walk(ids, nbr_ids, nbr_ptrs, edge_probs, (int)walk_length, (int)num_threads);
+    PyObject *ret = _random_walk(ids, nbr_ids, nbr_ptrs, edge_probs, (int)walk_length);
     return ret;
 }
 
 
 static PyObject *
 _node2vec_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs,
-             double p, double q, int walk_length, int num_threads) {
+             double p, double q, int walk_length) {
     int cnt = (int)PyArray_SIZE((PyArrayObject *)ids);
     PyObject *rets = PyTuple_New(cnt);
     double transfer_probs[3] = {1.0/p, 1.0, 1.0/q};
@@ -423,17 +420,15 @@ node2vec_walk(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwargs)
 {
     PyObject *ids = NULL, *nbr_ids = NULL, *nbr_ptrs = NULL;
     double p, q;
-    long walk_length, num_threads = 0;
-    static char *kwlist[] = {"walk_length", "ids", "nbr_ids", "nbr_ptrs", "p", "q",
-                            "num_threads", NULL};
+    long walk_length;
+    static char *kwlist[] = {"walk_length", "ids", "nbr_ids", "nbr_ptrs", "p", "q", NULL};
     // 在解析参数的时候，需要把numpy.ndarray放在最后一个参数，否则会出错
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "lOOOdd|l:node2vec_walk", kwlist,
-                                    &walk_length, &ids, &nbr_ids, &nbr_ptrs, &p, &q,
-                                    &num_threads)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "lOOOdd:node2vec_walk", kwlist,
+                                    &walk_length, &ids, &nbr_ids, &nbr_ptrs, &p, &q)) {
         PyErr_SetString(PyExc_RuntimeError, "error parsing args");
         return NULL;
     }
-    PyObject *ret = _node2vec_walk(ids, nbr_ids, nbr_ptrs, p, q, (int)walk_length, (int)num_threads);
+    PyObject *ret = _node2vec_walk(ids, nbr_ids, nbr_ptrs, p, q, (int)walk_length);
     return ret;
 }
 

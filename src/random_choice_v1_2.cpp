@@ -301,7 +301,7 @@ static bool _discard_node(double freq, double freq_th) {
 
 static PyObject *
 _random_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs,
-             PyObject *nbr_freqs, int walk_length, double freq_th) {
+             PyObject *edge_probs, PyObject *nbr_freqs, int walk_length, double freq_th) {
     int cnt = (int)PyArray_SIZE((PyArrayObject *)ids);
     PyObject *rets = PyTuple_New(cnt);
 
@@ -313,7 +313,10 @@ _random_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs,
         PyList_SetItem(path, 0, PyLong_FromLong(nid));
         for(; j<=walk_length; ++j) {
             _get_start_end(nbr_ptrs, nbr_ptrs, nid, nid+1, &start, &end);
-            continue_flag = _choice(start, end, 1, true, nbr_ptr);
+            if (edge_probs == NULL)
+                continue_flag = _choice(start, end, 1, true, nbr_ptr);
+            else
+                continue_flag = _choice((PyArrayObject *)edge_probs, start, end, 1, true, nbr_ptr);
             if (continue_flag) {
                 if (PyArray_TYPE((PyArrayObject *)nbr_ids) == NPY_INT) {
                     int *p1 = (int *)PyArray_GETPTR1((PyArrayObject *)nbr_ids, nbr_ptr[0]);
@@ -326,7 +329,6 @@ _random_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs,
                     _discard_node(*(double *)PyArray_GETPTR1((PyArrayObject *)nbr_freqs, nbr_ptr[0]), freq_th))
                     continue;
                 PyList_SetItem(path, actual_len++, PyLong_FromLong(nid));
-//                ++actual_len;
             }
             else
                 break;
@@ -342,23 +344,25 @@ _random_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs,
 static PyObject *
 random_walk(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwargs)
 {
-    PyObject *ids = NULL, *nbr_ids = NULL, *nbr_ptrs = NULL, *nbr_freqs = NULL;
+    PyObject *ids = NULL, *nbr_ids = NULL, *nbr_ptrs = NULL, *edge_probs = NULL, *nbr_freqs = NULL;
     long walk_length;
     double freq_th = 1.0;
-    static char *kwlist[] = {"walk_length", "ids", "nbr_ids", "nbr_ptrs", "nbr_freqs", "freq_th", NULL};
+    static char *kwlist[] = {"walk_length", "ids", "nbr_ids", "nbr_ptrs",
+                            "edge_probs", "nbr_freqs", "freq_th", NULL};
     // 在解析参数的时候，需要把numpy.ndarray放在最后一个参数，否则会出错
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "lOOO|Od:random_walk", kwlist,
-                                    &walk_length, &ids, &nbr_ids, &nbr_ptrs, &nbr_freqs, &freq_th)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "lOOO|OOd:random_walk", kwlist,
+                                    &walk_length, &ids, &nbr_ids, &nbr_ptrs, &edge_probs, &nbr_freqs, &freq_th)) {
         PyErr_SetString(PyExc_RuntimeError, "error parsing args");
         return NULL;
     }
-    PyObject *ret = _random_walk(ids, nbr_ids, nbr_ptrs, nbr_freqs, (int)walk_length, freq_th);
+    PyObject *ret = _random_walk(ids, nbr_ids, nbr_ptrs, edge_probs, nbr_freqs, (int)walk_length, freq_th);
     return ret;
 }
 
 
 static PyObject *
-_node2vec_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs, PyObject *nbr_freqs,
+_node2vec_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs,
+             PyObject *edge_probs, PyObject *nbr_freqs,
              double p, double q, int walk_length, double freq_th) {
     int cnt = (int)PyArray_SIZE((PyArrayObject *)ids);
     PyObject *rets = PyTuple_New(cnt);
@@ -377,7 +381,10 @@ _node2vec_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs, PyObject *n
         for(; j<=walk_length; ++j) {
             if (j <= 1) {
                 _get_start_end(nbr_ptrs, nbr_ptrs, path[0], path[0]+1, &start, &end);
-                continue_flag = _choice(start, end, 1, true, nbr_ptr);
+                if (edge_probs == NULL)
+                    continue_flag = _choice(start, end, 1, true, nbr_ptr);
+                else
+                    continue_flag = _choice((PyArrayObject *)edge_probs, start, end, 1, true, nbr_ptr);
             }
             else {
                 _choice((PyArrayObject *)transfer_probs_arr, 0L, 3L, 1, true, next_step);
@@ -388,11 +395,17 @@ _node2vec_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs, PyObject *n
                         break;
                     case 1L:
                         _get_start_end(nbr_ptrs, nbr_ptrs, path[j-2], path[j-2]+1, &start, &end);
-                        continue_flag = _choice(start, end, 1, true, nbr_ptr);
+                        if (edge_probs == NULL)
+                            continue_flag = _choice(start, end, 1, true, nbr_ptr);
+                        else
+                            continue_flag = _choice((PyArrayObject *)edge_probs, start, end, 1, true, nbr_ptr);
                         break;
                     case 2L:
                         _get_start_end(nbr_ptrs, nbr_ptrs, path[j-1], path[j-1]+1, &start, &end);
-                        continue_flag = _choice(start, end, 1, true, nbr_ptr);
+                        if (edge_probs == NULL)
+                            continue_flag = _choice(start, end, 1, true, nbr_ptr);
+                        else
+                            continue_flag = _choice((PyArrayObject *)edge_probs, start, end, 1, true, nbr_ptr);
                         break;
                     default:
                         continue_flag = 0;
@@ -431,18 +444,19 @@ _node2vec_walk(PyObject *ids, PyObject *nbr_ids, PyObject *nbr_ptrs, PyObject *n
 static PyObject *
 node2vec_walk(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwargs)
 {
-    PyObject *ids = NULL, *nbr_ids = NULL, *nbr_ptrs = NULL, *nbr_freqs = NULL;
+    PyObject *ids = NULL, *nbr_ids = NULL, *nbr_ptrs = NULL, *edge_probs = NULL, *nbr_freqs = NULL;
     double p, q, freq_th = 1.0;
     long walk_length;
     static char *kwlist[] = {"walk_length", "ids", "nbr_ids", "nbr_ptrs", "p", "q",
-                            "nbr_freqs", "freq_th", NULL};
+                            "edge_probs", "nbr_freqs", "freq_th", NULL};
     // 在解析参数的时候，需要把numpy.ndarray放在最后一个参数，否则会出错
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "lOOOdd|Od:node2vec_walk", kwlist,
-                                    &walk_length, &ids, &nbr_ids, &nbr_ptrs, &p, &q, &nbr_freqs, &freq_th)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "lOOOdd|OOd:node2vec_walk", kwlist,
+                                    &walk_length, &ids, &nbr_ids, &nbr_ptrs, &p, &q,
+                                    &edge_probs, &nbr_freqs, &freq_th)) {
         PyErr_SetString(PyExc_RuntimeError, "error parsing args");
         return NULL;
     }
-    PyObject *ret = _node2vec_walk(ids, nbr_ids, nbr_ptrs, nbr_freqs, p, q, (int)walk_length, freq_th);
+    PyObject *ret = _node2vec_walk(ids, nbr_ids, nbr_ptrs, edge_probs, nbr_freqs, p, q, (int)walk_length, freq_th);
     return ret;
 }
 

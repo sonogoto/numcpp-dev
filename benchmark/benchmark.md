@@ -117,8 +117,8 @@ serial vs. parallel
 `#hops` = 2, `#neighbors` = 10
 
 
-|#threads|time(sec)|
-|:---:|:---:|
-|numcpp(8 threads)|569|
-|dgl(4 threads)|773|
-|dgl(32 threads)|758|
+|#threads|time(sec)|memory used(GB)|
+|:---:|:---:|:---:|
+|numcpp(8 threads)|569|30|
+|dgl(4 threads)|773|55|
+|dgl(32 threads)|758|55|

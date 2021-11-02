@@ -139,17 +139,30 @@ _sample_neighbors_randomly(PyObject *ids0, PyObject *ids1,
     else
         rets = PyTuple_New(cnt*2+1);
     npy_intp dims[1];
+    npy_intp sentinel_dims[1] = {1};
+    long sentinel_data[1] = {0};
+    PyObject *ret = NULL, *eids = NULL, *idx = NULL;
     for (int i=0; i<cnt; ++i) {
-        dims[0] = (npy_intp)offset[i];
-        PyObject *idx = PyArray_SimpleNewFromData(1, dims, NPY_INTP, (void *)(indices+i*n));
-        PyObject *ret = PyArray_TakeFrom((PyArrayObject *)nbr_ids, idx, 0, NULL, NPY_RAISE);
+        if (offset[i] == 0) {
+            offset[i] = 1;
+            ret = PyArray_SimpleNewFromData(1, sentinel_dims, NPY_INTP, (void *)(sentinel_data));
+            if (edge_ids != NULL) {
+                eids = PyArray_SimpleNewFromData(1, sentinel_dims, NPY_INTP, (void *)(sentinel_data));
+            }
+        } else {
+            dims[0] = (npy_intp)offset[i];
+            idx = PyArray_SimpleNewFromData(1, dims, NPY_INTP, (void *)(indices+i*n));
+            ret = PyArray_TakeFrom((PyArrayObject *)nbr_ids, idx, 0, NULL, NPY_RAISE);
+            if (edge_ids != NULL) {
+                eids = PyArray_TakeFrom((PyArrayObject *)edge_ids, idx, 0, NULL, NPY_RAISE);
+            }
+        }
         PyTuple_SET_ITEM(rets, i, ret);
         if (edge_ids != NULL) {
-            PyObject *eids = PyArray_TakeFrom((PyArrayObject *)edge_ids, idx, 0, NULL, NPY_RAISE);
             PyTuple_SET_ITEM(rets, i+cnt, eids);
         }
-        Py_DECREF(idx);
     }
+    Py_XDECREF(idx);
 
     dims[0] = cnt;
     PyObject *offset_arr = PyArray_SimpleNewFromData(1, dims, NPY_INT, (void *)offset);
@@ -245,17 +258,30 @@ _sample_topk_neighbors(PyObject *ids0, PyObject *ids1,
     else
         rets = PyTuple_New(cnt*2+1);
     npy_intp dims[1];
+    npy_intp sentinel_dims[1] = {1};
+    long sentinel_data[1] = {0};
+    PyObject *ret = NULL, *eids = NULL, *idx = NULL;
     for (int i=0; i<cnt; ++i) {
-        dims[0] = (npy_intp)offset[i];
-        PyObject *idx = PyArray_SimpleNewFromData(1, dims, NPY_INTP, (void *)(indices+i*k));
-        PyObject *ret = PyArray_TakeFrom((PyArrayObject *)nbr_ids, idx, 0, NULL, NPY_RAISE);
+        if (offset[i] == 0) {
+            offset[i] = 1;
+            ret = PyArray_SimpleNewFromData(1, sentinel_dims, NPY_INTP, (void *)(sentinel_data));
+            if (edge_ids != NULL) {
+                eids = PyArray_SimpleNewFromData(1, sentinel_dims, NPY_INTP, (void *)(sentinel_data));
+            }
+        } else {
+            dims[0] = (npy_intp)offset[i];
+            idx = PyArray_SimpleNewFromData(1, dims, NPY_INTP, (void *)(indices+i*k));
+            ret = PyArray_TakeFrom((PyArrayObject *)nbr_ids, idx, 0, NULL, NPY_RAISE);
+            if (edge_ids != NULL) {
+                eids = PyArray_TakeFrom((PyArrayObject *)edge_ids, idx, 0, NULL, NPY_RAISE);
+            }
+        }
         PyTuple_SET_ITEM(rets, i, ret);
         if (edge_ids != NULL) {
-            PyObject *eids = PyArray_TakeFrom((PyArrayObject *)edge_ids, idx, 0, NULL, NPY_RAISE);
             PyTuple_SET_ITEM(rets, i+cnt, eids);
         }
-        Py_DECREF(idx);
     }
+    Py_XDECREF(idx);
 
     dims[0] = cnt;
     PyObject *offset_arr = PyArray_SimpleNewFromData(1, dims, NPY_INT, (void *)offset);

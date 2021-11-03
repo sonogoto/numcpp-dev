@@ -156,13 +156,13 @@ _sample_neighbors_randomly(PyObject *ids0, PyObject *ids1,
             if (edge_ids != NULL) {
                 eids = PyArray_TakeFrom((PyArrayObject *)edge_ids, idx, 0, NULL, NPY_RAISE);
             }
+            Py_DECREF(idx);
         }
         PyTuple_SET_ITEM(rets, i, ret);
         if (edge_ids != NULL) {
             PyTuple_SET_ITEM(rets, i+cnt, eids);
         }
     }
-    Py_XDECREF(idx);
 
     dims[0] = cnt;
     PyObject *offset_arr = PyArray_SimpleNewFromData(1, dims, NPY_INT, (void *)offset);
@@ -275,13 +275,13 @@ _sample_topk_neighbors(PyObject *ids0, PyObject *ids1,
             if (edge_ids != NULL) {
                 eids = PyArray_TakeFrom((PyArrayObject *)edge_ids, idx, 0, NULL, NPY_RAISE);
             }
+            Py_DECREF(idx);
         }
         PyTuple_SET_ITEM(rets, i, ret);
         if (edge_ids != NULL) {
             PyTuple_SET_ITEM(rets, i+cnt, eids);
         }
     }
-    Py_XDECREF(idx);
 
     dims[0] = cnt;
     PyObject *offset_arr = PyArray_SimpleNewFromData(1, dims, NPY_INT, (void *)offset);
